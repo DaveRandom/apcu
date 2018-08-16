@@ -7,21 +7,21 @@ define("PHP_CLI_SERVER_ADDRESS", PHP_CLI_SERVER_HOSTNAME . ":" . PHP_CLI_SERVER_
 /* XXX incapsulate all this globals into a class when have a favourable minute */
 $doc_root = __DIR__;
 $router = "index.php";
-$handles = array();
-$ports = array();
+$handles = [];
+$ports = [];
 $num_servers = 3;
 
-function server_start_one($host, $port, $code = 'echo "Hello world";', $php_opts = array(), $no_router = FALSE)
+function server_start_one($host, $port, $php_opts = [], $no_router = false)
 {
-	global $doc_root, $router, $handles, $ports;
+	global $doc_root, $router;
 
 	$php_executable = getenv('TEST_PHP_EXECUTABLE');
 
-	$descriptorspec = array(
+	$descriptorspec = [
 		0 => STDIN,
 		1 => STDOUT,
 		2 => STDERR,
-	);
+	];
 
 	$php_args = getenv('TEST_PHP_ARGS');
 	if (empty($php_args)) {
@@ -46,7 +46,7 @@ function server_start_one($host, $port, $code = 'echo "Hello world";', $php_opts
 			$cmd .= " {$router}";
 		}
 
-		$handle = proc_open(addslashes($cmd), $descriptorspec, $pipes, $doc_root, NULL, array("bypass_shell" => true, "suppress_errors" => true));
+		$handle = proc_open(addslashes($cmd), $descriptorspec, $pipes, $doc_root, null, ["bypass_shell" => true, "suppress_errors" => true]);
 	} else {
 		$cmd = "exec {$php_executable} -n $php_args -t {$doc_root} -S $host:$port";
 		if (!$no_router) {
@@ -67,9 +67,9 @@ function server_start_one($host, $port, $code = 'echo "Hello world";', $php_opts
 	return $handle;
 }
 
-function server_start($code = 'echo "Hello world";', $php_opts = array(), $no_router = FALSE)
+function server_start($code = 'echo "Hello world";', $php_opts = [], $no_router = false)
 {
-	global $doc_root, $router, $handles, $ports, $num_servers;
+	global $doc_root, $router, $handles, $num_servers;
 
 
 	if ($code) {
@@ -77,7 +77,7 @@ function server_start($code = 'echo "Hello world";', $php_opts = array(), $no_ro
 	}
 
 	for ($i = 0; $i < $num_servers; $i++) {
-		$h = server_start_one(PHP_CLI_SERVER_HOSTNAME, PHP_CLI_SERVER_PORT + $i, $code, $php_opts, $no_router);
+		$h = server_start_one(PHP_CLI_SERVER_HOSTNAME, PHP_CLI_SERVER_PORT + $i, $php_opts, $no_router);
 		$handles[] = $h;
 	}
 
@@ -137,7 +137,7 @@ function connection_test($host, $port)
 	return false;
 }
 
-function run_test_simple($request_uri = NULL)
+function run_test_simple($request_uri = null)
 {
 	global $num_servers;
 	$send = "GET /" . $request_uri . " HTTP/1.1\nHost: " . PHP_CLI_SERVER_HOSTNAME . "\r\n\r\n";
