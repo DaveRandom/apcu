@@ -1,8 +1,8 @@
 <?php
 /* based on sapi/cli/tests/php_cli_server.inc */
-define ("PHP_CLI_SERVER_HOSTNAME", "127.0.0.1");
-define ("PHP_CLI_SERVER_PORT", 8000 + PHP_INT_SIZE*100 + PHP_MAJOR_VERSION*10 + PHP_MINOR_VERSION);
-define ("PHP_CLI_SERVER_ADDRESS", PHP_CLI_SERVER_HOSTNAME.":".PHP_CLI_SERVER_PORT);
+define("PHP_CLI_SERVER_HOSTNAME", "127.0.0.1");
+define("PHP_CLI_SERVER_PORT", 8000 + PHP_INT_SIZE * 100 + PHP_MAJOR_VERSION * 10 + PHP_MINOR_VERSION);
+define("PHP_CLI_SERVER_ADDRESS", PHP_CLI_SERVER_HOSTNAME . ":" . PHP_CLI_SERVER_PORT);
 
 /* XXX incapsulate all this globals into a class when have a favourable minute */
 $doc_root = __DIR__;
@@ -46,7 +46,7 @@ function server_start_one($host, $port, $code = 'echo "Hello world";', $php_opts
 			$cmd .= " {$router}";
 		}
 
-		$handle = proc_open(addslashes($cmd), $descriptorspec, $pipes, $doc_root, NULL, array("bypass_shell" => true,  "suppress_errors" => true));
+		$handle = proc_open(addslashes($cmd), $descriptorspec, $pipes, $doc_root, NULL, array("bypass_shell" => true, "suppress_errors" => true));
 	} else {
 		$cmd = "exec {$php_executable} -n $php_args -t {$doc_root} -S $host:$port";
 		if (!$no_router) {
@@ -56,13 +56,13 @@ function server_start_one($host, $port, $code = 'echo "Hello world";', $php_opts
 
 		$handle = proc_open($cmd, $descriptorspec, $pipes, $doc_root);
 	}
-	
+
 	// note: even when server prints 'Listening on localhost:8964...Press Ctrl-C to quit.'
 	//       it might not be listening yet...need to wait until fsockopen() call returns
-    $i = 0;
-    while (($i++ < 10) && !connection_test($host, $port)) {
-        usleep(100000);
-    }
+	$i = 0;
+	while (($i++ < 10) && !connection_test($host, $port)) {
+		usleep(100000);
+	}
 
 	return $handle;
 }
@@ -77,19 +77,19 @@ function server_start($code = 'echo "Hello world";', $php_opts = array(), $no_ro
 	}
 
 	for ($i = 0; $i < $num_servers; $i++) {
-		$h = server_start_one(PHP_CLI_SERVER_HOSTNAME, PHP_CLI_SERVER_PORT+$i, $code, $php_opts, $no_router);
+		$h = server_start_one(PHP_CLI_SERVER_HOSTNAME, PHP_CLI_SERVER_PORT + $i, $code, $php_opts, $no_router);
 		$handles[] = $h;
-	}	
+	}
 
 	register_shutdown_function(
-		function($handles) use($router) {
+		function ($handles) use ($router) {
 			foreach ($handles as $handle) {
 				proc_terminate($handle);
 			}
 			@unlink(__DIR__ . "/{$router}");
 		},
-			$handles
-		);
+		$handles
+	);
 	// don't bother sleeping, server is already up
 	// server can take a variable amount of time to be up, so just sleeping a guessed amount of time
 	// does not work. this is why tests sometimes pass and sometimes fail. to get a reliable pass
@@ -115,7 +115,7 @@ function get_response($fp, $data_only = true)
 
 function connection_test($host, $port)
 {
-	$port = intval($port)?:80;
+	$port = intval($port) ?: 80;
 
 	$fp = @fsockopen($host, $port, $errno, $errstr, 10);
 	if (!$fp) {
@@ -125,7 +125,7 @@ function connection_test($host, $port)
 	$send = "GET / HTTP/1.1\nHost: {$host}\r\n\r\n";
 
 	/* will not out here, just test if the connection has worked*/
-	if(@fwrite($fp, $send)) {
+	if (@fwrite($fp, $send)) {
 		get_response($fp);
 		fclose($fp);
 
@@ -139,11 +139,11 @@ function connection_test($host, $port)
 
 function run_test_simple($request_uri = NULL)
 {
-    global $num_servers;
-	$send = "GET /" . $request_uri ." HTTP/1.1\nHost: " . PHP_CLI_SERVER_HOSTNAME . "\r\n\r\n";
+	global $num_servers;
+	$send = "GET /" . $request_uri . " HTTP/1.1\nHost: " . PHP_CLI_SERVER_HOSTNAME . "\r\n\r\n";
 
 	for ($i = 0; $i < $num_servers; $i++) {
-		run_test(PHP_CLI_SERVER_HOSTNAME, PHP_CLI_SERVER_PORT+$i, $send);
+		run_test(PHP_CLI_SERVER_HOSTNAME, PHP_CLI_SERVER_PORT + $i, $send);
 	}
 }
 
@@ -151,10 +151,10 @@ function run_test($host, $port, $send)
 {
 	$fp = fsockopen($host, $port, $errno, $errstr, 10);
 	if (!$fp) {
-	  die(sprintf("connect failed errno=%d errstr='%s'", $errno, $errstr));
+		die(sprintf("connect failed errno=%d errstr='%s'", $errno, $errstr));
 	}
 
-	if(fwrite($fp, $send)) {
+	if (fwrite($fp, $send)) {
 		echo get_response($fp);
 	}
 
