@@ -160,6 +160,8 @@ function server_start_one($host, $port, $php_opts = [], $no_router = false)
 		$cmd = "exec {$cmd} 2>/dev/null";
 	}
 
+	var_dump($cmd);
+
 	$handle = proc_open($cmd, [STDIN, STDOUT, STDERR], $pipes, $cwd, $env, $opts);
 
 	// note: even when server prints 'Listening on localhost:8964...Press Ctrl-C to quit.'
