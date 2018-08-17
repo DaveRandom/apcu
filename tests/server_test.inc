@@ -97,17 +97,17 @@ class PhpArgs
 
 	public function to_command_line()
 	{
-		$result = '-d ' . escapeshellarg($this->extension_dir);
+		$settings = ["extension_dir={$this->extension_dir}"];
 
 		foreach ($this->extensions as $extension) {
-			$result .= ' -d ' . escapeshellarg($extension);
+			$settings[] = "extension={$extension}";
 		}
 
 		foreach ($this->settings as $name => $value) {
-			$result .= ' -d ' . escapeshellarg("{$name}={$value}");
+			$settings[] = "{$name}={$value}";
 		}
 
-		return $result;
+		return '-d' . implode(' -d ', array_map('escapeshellarg', $settings));
 	}
 
 	public function parse_settings_from_command_line_args($args)
