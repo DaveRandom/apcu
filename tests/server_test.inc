@@ -5,17 +5,23 @@ const PHP_CLI_SERVER_HOSTNAME = '127.0.0.1';
 const PHP_CLI_SERVER_PORT = 8000 + (PHP_INT_SIZE * 100) + (PHP_MAJOR_VERSION * 10) + PHP_MINOR_VERSION;
 const PHP_CLI_SERVER_ADDRESS = PHP_CLI_SERVER_HOSTNAME . ":" . PHP_CLI_SERVER_PORT;
 
-/* XXX incapsulate all this globals into a class when have a favourable minute */
-$doc_root = __DIR__;
-$router = "index.php";
-$handles = [];
-$ports = [];
-$num_servers = 3;
+final class ServerTestGlobals
+{
+	const IS_WINDOWS = (PHP_OS & "\xDF\xDF\xDF") === 'WIN';
+
+	public static $doc_root = __DIR__;
+    public static $router = "index.php";
+	public static $handles = [];
+	public static $num_servers = 3;
+
+    public static function router_full_path()
+    {
+    	return self::$doc_root . DIRECTORY_SEPARATOR . self::$router;
+    }
+}
 
 function server_start_one($host, $port, $php_opts = [], $no_router = false)
 {
-	global $doc_root, $router;
-
 	$php_executable = getenv('TEST_PHP_EXECUTABLE');
 
 	$descriptorspec = [
@@ -26,14 +32,14 @@ function server_start_one($host, $port, $php_opts = [], $no_router = false)
 
 	$php_args = getenv('TEST_PHP_ARGS');
 	if (empty($php_args)) {
-		$ext = (substr(PHP_OS, 0, 3) == 'WIN') ? 'php_apcu.dll' : 'apcu.so';
-		if (substr(PHP_OS, 0, 3) == 'WIN') {
+		$ext = ServerTestGlobals::IS_WINDOWS ? 'php_apcu.dll' : 'apcu.so';
+		if (ServerTestGlobals::IS_WINDOWS) {
 			$part0 = 8 == PHP_INT_SIZE ? "x64" : "";
 			$part1 = ZEND_DEBUG_BUILD ? "Debug" : "Release";
 			$part1 = PHP_ZTS ? ($part1 . "_TS") : $part1;
-			$php_args = "-d extension_dir=$doc_root/../$part0/$part1";
+			$php_args = sprintf("-d extension_dir=%s/../%s", ServerTestGlobals::$doc_root, "{$part0}/{$part1}");
 		} else {
-			$php_args = "-d extension_dir=$doc_root/../modules";
+			$php_args = sprintf("-d extension_dir=%s/../modules", ServerTestGlobals::$doc_root);
 		}
 		$php_args = "$php_args -d extension=$ext";
 	}
@@ -42,26 +48,25 @@ function server_start_one($host, $port, $php_opts = [], $no_router = false)
 	}
 
 	if (substr(PHP_OS, 0, 3) == 'WIN') {
-		$cmd = "{$php_executable} -n $php_args -t {$doc_root} -S $host:$port";
+		$cmd = "{$php_executable} -n {$php_args} -t " . ServerTestGlobals::$doc_root . " -S {$host}:{$port}";
 		if (!$no_router) {
-			$cmd .= " {$router}";
+			$cmd .= " " . ServerTestGlobals::$router;
 		}
 
-		$handle = proc_open(addslashes($cmd), $descriptorspec, $pipes, $doc_root, null, ["bypass_shell" => true, "suppress_errors" => true]);
+		$handle = proc_open(addslashes($cmd), $descriptorspec, $pipes, ServerTestGlobals::$doc_root, null, ["bypass_shell" => true, "suppress_errors" => true]);
 	} else {
-		$cmd = "exec {$php_executable} -n $php_args -t {$doc_root} -S $host:$port";
+		$cmd = "exec {$php_executable} -n {$php_args} -t " . ServerTestGlobals::$doc_root . " -S {$host}:{$port}";
 		if (!$no_router) {
-			$cmd .= " {$doc_root}/{$router}";
+			$cmd .= " " . ServerTestGlobals::router_full_path();
 		}
 		$cmd .= " 2>/dev/null";
 
-		$handle = proc_open($cmd, $descriptorspec, $pipes, $doc_root);
+		$handle = proc_open($cmd, $descriptorspec, $pipes, ServerTestGlobals::$doc_root);
 	}
 
 	// note: even when server prints 'Listening on localhost:8964...Press Ctrl-C to quit.'
 	//       it might not be listening yet...need to wait until fsockopen() call returns
-	$i = 0;
-	while (($i++ < 10) && !connection_test($host, $port)) {
+	for ($i = 0; $i < 10 && !connection_test($host, $port); $i++) {
 		usleep(100000);
 	}
 
@@ -70,27 +75,20 @@ function server_start_one($host, $port, $php_opts = [], $no_router = false)
 
 function server_start($code = 'echo "Hello world";', $php_opts = [], $no_router = false)
 {
-	global $doc_root, $router, $handles, $num_servers;
-
-
 	if ($code) {
-		file_put_contents($doc_root . '/' . $router, '<?php ' . $code . ' ?>');
+		file_put_contents(ServerTestGlobals::router_full_path(), '<?php ' . $code . ' ?>');
 	}
 
-	for ($i = 0; $i < $num_servers; $i++) {
-		$h = server_start_one(PHP_CLI_SERVER_HOSTNAME, PHP_CLI_SERVER_PORT + $i, $php_opts, $no_router);
-		$handles[] = $h;
+	for ($i = 0; $i < ServerTestGlobals::$num_servers; $i++) {
+		ServerTestGlobals::$handles[] = server_start_one(PHP_CLI_SERVER_HOSTNAME, PHP_CLI_SERVER_PORT + $i, $php_opts, $no_router);
 	}
 
-	register_shutdown_function(
-		function ($handles) use ($router) {
-			foreach ($handles as $handle) {
-				proc_terminate($handle);
-			}
-			@unlink(__DIR__ . "/{$router}");
-		},
-		$handles
-	);
+	register_shutdown_function(function() {
+		foreach (ServerTestGlobals::$handles as $handle) {
+			proc_terminate($handle);
+		}
+		@unlink(ServerTestGlobals::router_full_path());
+	});
 	// don't bother sleeping, server is already up
 	// server can take a variable amount of time to be up, so just sleeping a guessed amount of time
 	// does not work. this is why tests sometimes pass and sometimes fail. to get a reliable pass
@@ -140,10 +138,9 @@ function connection_test($host, $port)
 
 function run_test_simple($request_uri = null)
 {
-	global $num_servers;
 	$send = "GET /" . $request_uri . " HTTP/1.1\nHost: " . PHP_CLI_SERVER_HOSTNAME . "\r\n\r\n";
 
-	for ($i = 0; $i < $num_servers; $i++) {
+	for ($i = 0; $i < ServerTestGlobals::$num_servers; $i++) {
 		run_test(PHP_CLI_SERVER_HOSTNAME, PHP_CLI_SERVER_PORT + $i, $send);
 	}
 }
