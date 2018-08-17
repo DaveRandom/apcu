@@ -5,7 +5,7 @@ const PHP_CLI_SERVER_HOSTNAME = '127.0.0.1';
 const PHP_CLI_SERVER_PORT = 8000 + (PHP_INT_SIZE * 100) + (PHP_MAJOR_VERSION * 10) + PHP_MINOR_VERSION;
 const PHP_CLI_SERVER_ADDRESS = PHP_CLI_SERVER_HOSTNAME . ":" . PHP_CLI_SERVER_PORT;
 
-final class ServerTestGlobals
+class ServerTestGlobals
 {
 	const IS_WINDOWS = (PHP_OS & "\xDF\xDF\xDF") === 'WIN';
 
@@ -14,55 +14,153 @@ final class ServerTestGlobals
 	public static $handles = [];
 	public static $num_servers = 3;
 
-    public static function router_full_path()
-    {
-    	return self::$doc_root . DIRECTORY_SEPARATOR . self::$router;
-    }
+	public static function router_full_path()
+	{
+		return self::$doc_root . DIRECTORY_SEPARATOR . self::$router;
+	}
+
+	public static function router_arg_path($no_router)
+	{
+		if ($no_router) {
+			return '';
+		}
+
+		return self::IS_WINDOWS
+			? self::$router
+			: self::router_full_path();
+	}
+}
+
+class PhpArgs
+{
+	const COMMAND_LINE_PARSE_PATTERN = '(
+		.*?
+		(?:
+			-d\s*
+			(?:
+				(?P<qt1>[\'"]) (?P<op1>(?:(?!(?P=qt1)).)*) (?P=qt1)
+			|	(?P<op2>\S+)
+			)
+		|	(?P<qt2>[\'"]) -d (?P<op3>(?:(?!(?P=qt2)).)*) (?P=qt2)
+		)
+	)Ax';
+
+	private $settings = [];
+	private $extensions = [];
+	private $extension_dir;
+
+	private static function get_default_extension_dir()
+	{
+		$path = ServerTestGlobals::$doc_root . '/..';
+
+		if (!ServerTestGlobals::IS_WINDOWS) {
+			return $path . '/modules';
+		}
+
+		if (PHP_INT_SIZE === 8) {
+			$path .= '/x64';
+		}
+
+		$path .= ZEND_DEBUG_BUILD ? "/Debug" : "/Release";
+
+		if (PHP_ZTS) {
+			$path .= '_TS';
+		}
+
+		return $path;
+	}
+
+	private function parse_setting($setting)
+	{
+		if (!preg_match('#^(?P<name>[^=]+)=(?P<value>.*)$#', $setting, $match)) {
+			return;
+		}
+
+		switch ($match['name']) {
+			case 'extension':
+				$this->extensions[basename($match['value'])] = $match['value'];
+				break;
+
+			case 'extension_dir':
+				$this->extension_dir = $match['value'];
+				break;
+
+			default:
+				$this->settings[$match['name']] = $match['value'];
+		}
+	}
+
+	public function __construct()
+	{
+		$this->extension_dir = self::get_default_extension_dir();
+	}
+
+	public function to_command_line()
+	{
+		$result = '-d ' . escapeshellarg($this->extension_dir);
+
+		foreach ($this->extensions as $extension) {
+			$result .= ' -d ' . escapeshellarg($extension);
+		}
+
+		foreach ($this->settings as $name => $value) {
+			$result .= ' -d ' . escapeshellarg("{$name}={$value}");
+		}
+
+		return $result;
+	}
+
+	public function parse_settings_from_command_line_args($args)
+	{
+		for ($offset = 0; isset($args[$offset]); $offset += strlen($match[0])) {
+			if (!preg_match(self::COMMAND_LINE_PARSE_PATTERN, $args, $match, 0, $offset)) {
+				break;
+			}
+
+			$this->parse_setting($match['op3'] ?? $match['op2'] ?? $match['op1']);
+		}
+
+		return $this;
+	}
+
+	public function parse_settings($settings)
+	{
+		foreach ((array)$settings as $setting) {
+			$this->parse_setting($setting);
+		}
+
+		return $this;
+	}
 }
 
 function server_start_one($host, $port, $php_opts = [], $no_router = false)
 {
 	$php_executable = getenv('TEST_PHP_EXECUTABLE');
 
-	$descriptorspec = [
-		0 => STDIN,
-		1 => STDOUT,
-		2 => STDERR,
-	];
+	$php_args = (new PhpArgs)
+		->parse_settings_from_command_line_args(getenv('TEST_PHP_ARGS'))
+		->parse_settings($php_opts)
+	;
 
-	$php_args = getenv('TEST_PHP_ARGS');
-	if (empty($php_args)) {
-		$ext = ServerTestGlobals::IS_WINDOWS ? 'php_apcu.dll' : 'apcu.so';
-		if (ServerTestGlobals::IS_WINDOWS) {
-			$part0 = 8 == PHP_INT_SIZE ? "x64" : "";
-			$part1 = ZEND_DEBUG_BUILD ? "Debug" : "Release";
-			$part1 = PHP_ZTS ? ($part1 . "_TS") : $part1;
-			$php_args = sprintf("-d extension_dir=%s/../%s", ServerTestGlobals::$doc_root, "{$part0}/{$part1}");
-		} else {
-			$php_args = sprintf("-d extension_dir=%s/../modules", ServerTestGlobals::$doc_root);
-		}
-		$php_args = "$php_args -d extension=$ext";
-	}
-	if ($php_opts) {
-		$php_args = "$php_args -d " . implode(' -d ', $php_opts);;
-	}
+	$cmd = sprintf(
+		'%s -n %s -t %s -S %s %s',
+		escapeshellarg($php_executable),
+		$php_args->to_command_line(),
+		escapeshellarg(ServerTestGlobals::$doc_root),
+		escapeshellarg("{$host}:{$port}"),
+		escapeshellarg(ServerTestGlobals::router_arg_path($no_router))
+	);
 
-	if (substr(PHP_OS, 0, 3) == 'WIN') {
-		$cmd = "{$php_executable} -n {$php_args} -t " . ServerTestGlobals::$doc_root . " -S {$host}:{$port}";
-		if (!$no_router) {
-			$cmd .= " " . ServerTestGlobals::$router;
-		}
+	$cwd = ServerTestGlobals::$doc_root;
+	$env = $opts = null;
 
-		$handle = proc_open(addslashes($cmd), $descriptorspec, $pipes, ServerTestGlobals::$doc_root, null, ["bypass_shell" => true, "suppress_errors" => true]);
+	if (ServerTestGlobals::IS_WINDOWS) {
+		$opts = ["bypass_shell" => true, "suppress_errors" => true];
 	} else {
-		$cmd = "exec {$php_executable} -n {$php_args} -t " . ServerTestGlobals::$doc_root . " -S {$host}:{$port}";
-		if (!$no_router) {
-			$cmd .= " " . ServerTestGlobals::router_full_path();
-		}
-		$cmd .= " 2>/dev/null";
-
-		$handle = proc_open($cmd, $descriptorspec, $pipes, ServerTestGlobals::$doc_root);
+		$cmd = "exec {$cmd} 2>/dev/null";
 	}
+
+	$handle = proc_open($cmd, [STDIN, STDOUT, STDERR], $pipes, $cwd, $env, $opts);
 
 	// note: even when server prints 'Listening on localhost:8964...Press Ctrl-C to quit.'
 	//       it might not be listening yet...need to wait until fsockopen() call returns
