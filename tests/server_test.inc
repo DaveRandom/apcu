@@ -70,26 +70,6 @@ class PhpArgs
 		return $path;
 	}
 
-	private function parse_setting($setting)
-	{
-		if (!preg_match('#^(?P<name>[^=]+)=(?P<value>.*)$#', $setting, $match)) {
-			return;
-		}
-
-		switch ($match['name']) {
-			case 'extension':
-				$this->extensions[basename($match['value'])] = $match['value'];
-				break;
-
-			case 'extension_dir':
-				$this->extension_dir = $match['value'];
-				break;
-
-			default:
-				$this->settings[$match['name']] = $match['value'];
-		}
-	}
-
 	public function __construct()
 	{
 		$this->extension_dir = self::get_default_extension_dir();
@@ -107,7 +87,7 @@ class PhpArgs
 			$settings[] = "{$name}={$value}";
 		}
 
-		return '-d' . implode(' -d ', array_map('escapeshellarg', $settings));
+		return '-d ' . implode(' -d ', array_map('escapeshellarg', $settings));
 	}
 
 	public function parse_settings_from_command_line_args($args)
@@ -131,6 +111,39 @@ class PhpArgs
 
 		return $this;
 	}
+
+	public function parse_setting($setting)
+	{
+		if (!preg_match('#^(?P<name>[^=]+)=(?P<value>.*)$#', $setting, $match)) {
+			return $this;
+		}
+
+		switch ($match['name']) {
+			case 'extension':
+				$this->extensions[basename($match['value'])] = $match['value'];
+				break;
+
+			case 'extension_dir':
+				$this->extension_dir = $match['value'];
+				break;
+
+			default:
+				$this->settings[$match['name']] = $match['value'];
+		}
+
+		return $this;
+	}
+
+	public function add_extension($name)
+	{
+		$file = ServerTestGlobals::IS_WINDOWS
+			? "php_{$name}.dll"
+			: "{$name}.so";
+
+		$this->extensions[$file] = $file;
+
+		return $this;
+	}
 }
 
 function server_start_one($host, $port, $php_opts = [], $no_router = false)
@@ -140,6 +153,7 @@ function server_start_one($host, $port, $php_opts = [], $no_router = false)
 	$php_args = (new PhpArgs)
 		->parse_settings_from_command_line_args(getenv('TEST_PHP_ARGS'))
 		->parse_settings($php_opts)
+		->add_extension('apcu')
 	;
 
 	$cmd = sprintf(
@@ -159,8 +173,6 @@ function server_start_one($host, $port, $php_opts = [], $no_router = false)
 	} else {
 		$cmd = "exec {$cmd} 2>/dev/null";
 	}
-
-	var_dump($cmd);
 
 	$handle = proc_open($cmd, [STDIN, STDOUT, STDERR], $pipes, $cwd, $env, $opts);
 
